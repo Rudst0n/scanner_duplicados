@@ -2,6 +2,7 @@ import os
 import hashlib
 import threading
 import shutil
+import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -10,8 +11,8 @@ class ScannerDuplicadosApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Scanner de Arquivos Duplicados")
-        self.root.geometry("1240x780")
-        self.root.minsize(1100, 680)
+        self.root.geometry("1320x780")
+        self.root.minsize(1180, 680)
 
         self.pasta_selecionada = tk.StringVar()
         self.status_texto = tk.StringVar(value="Selecione uma pasta para iniciar.")
@@ -67,7 +68,7 @@ class ScannerDuplicadosApp:
             frame_botoes,
             text="Iniciar scanner",
             command=self.iniciar_scanner,
-            width=17,
+            width=16,
             bg="#1f6feb",
             fg="white"
         )
@@ -77,18 +78,27 @@ class ScannerDuplicadosApp:
             frame_botoes,
             text="Cancelar análise",
             command=self.cancelar_scanner,
-            width=17,
+            width=16,
             bg="#6b7280",
             fg="white",
             state="disabled"
         )
         self.botao_cancelar.pack(side="left", padx=(0, 8))
 
+        self.botao_abrir_local = tk.Button(
+            frame_botoes,
+            text="Abrir local",
+            command=self.abrir_local_arquivo,
+            width=14,
+            state="disabled"
+        )
+        self.botao_abrir_local.pack(side="left", padx=(0, 8))
+
         self.botao_mover_selecionado = tk.Button(
             frame_botoes,
             text="Mover selecionado",
             command=self.mover_selecionado,
-            width=17,
+            width=16,
             bg="#b42318",
             fg="white",
             state="disabled"
@@ -99,7 +109,7 @@ class ScannerDuplicadosApp:
             frame_botoes,
             text="Mover duplicados",
             command=self.mover_todos_duplicados,
-            width=17,
+            width=16,
             bg="#7a271a",
             fg="white",
             state="disabled"
@@ -110,7 +120,7 @@ class ScannerDuplicadosApp:
             frame_botoes,
             text="Abrir revisão",
             command=self.abrir_pasta_revisao,
-            width=15,
+            width=14,
             state="disabled"
         )
         self.botao_abrir_revisao.pack(side="left", padx=(0, 8))
@@ -119,7 +129,7 @@ class ScannerDuplicadosApp:
             frame_botoes,
             text="Salvar relatório",
             command=self.salvar_relatorio,
-            width=15,
+            width=14,
             state="disabled"
         )
         self.botao_relatorio.pack(side="left", padx=(0, 8))
@@ -177,7 +187,9 @@ class ScannerDuplicadosApp:
         self.tabela.column("acao", width=110, anchor="center")
         self.tabela.column("arquivo", width=260)
         self.tabela.column("tamanho", width=110, anchor="center")
-        self.tabela.column("caminho", width=690)
+        self.tabela.column("caminho", width=770)
+
+        self.tabela.bind("<<TreeviewSelect>>", self.ao_selecionar_item)
 
         scroll_y = ttk.Scrollbar(
             frame_resultado,
@@ -249,6 +261,14 @@ class ScannerDuplicadosApp:
             lambda: self.contador_texto.set(f"Arquivos verificados: {self.total_verificados}")
         )
 
+    def ao_selecionar_item(self, event=None):
+        item_selecionado = self.tabela.selection()
+
+        if item_selecionado:
+            self.botao_abrir_local.config(state="normal")
+        else:
+            self.botao_abrir_local.config(state="disabled")
+
     def escolher_pasta(self):
         pasta = filedialog.askdirectory(title="Selecione a pasta para escanear")
 
@@ -288,6 +308,7 @@ class ScannerDuplicadosApp:
 
         self.botao_scan.config(state="disabled")
         self.botao_cancelar.config(state="normal")
+        self.botao_abrir_local.config(state="disabled")
         self.botao_mover_selecionado.config(state="disabled")
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
@@ -452,6 +473,7 @@ class ScannerDuplicadosApp:
         self.progress_bar.stop()
         self.botao_scan.config(state="normal")
         self.botao_cancelar.config(state="disabled")
+        self.botao_abrir_local.config(state="disabled")
         self.botao_mover_selecionado.config(state="disabled")
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
@@ -475,6 +497,7 @@ class ScannerDuplicadosApp:
 
         if total_grupos == 0:
             self.status_texto.set("Nenhum arquivo duplicado encontrado.")
+            self.botao_abrir_local.config(state="disabled")
             self.botao_mover_selecionado.config(state="disabled")
             self.botao_mover_todos.config(state="disabled")
             self.botao_relatorio.config(state="disabled")
@@ -500,6 +523,7 @@ class ScannerDuplicadosApp:
         self.progress_bar.stop()
         self.botao_scan.config(state="normal")
         self.botao_cancelar.config(state="disabled")
+        self.botao_abrir_local.config(state="disabled")
         self.botao_mover_selecionado.config(state="disabled")
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
@@ -529,6 +553,65 @@ class ScannerDuplicadosApp:
                 )
 
             grupo += 1
+
+    def obter_caminho_selecionado(self):
+        item_selecionado = self.tabela.selection()
+
+        if not item_selecionado:
+            return None
+
+        item = item_selecionado[0]
+        valores = self.tabela.item(item, "values")
+
+        if not valores or len(valores) < 5:
+            return None
+
+        return valores[4]
+
+    def abrir_local_arquivo(self):
+        caminho = self.obter_caminho_selecionado()
+
+        if not caminho:
+            messagebox.showwarning("Atenção", "Selecione um arquivo na tabela.")
+            return
+
+        caminho = os.path.normpath(caminho)
+
+        if not os.path.exists(caminho):
+            pasta = os.path.dirname(caminho)
+
+            if os.path.exists(pasta):
+                try:
+                    os.startfile(pasta)
+                    self.escrever_visor(f"Pasta aberta: {pasta}")
+                    return
+                except Exception as erro:
+                    messagebox.showerror(
+                        "Erro",
+                        f"Não foi possível abrir a pasta.\n\n{erro}"
+                    )
+                    return
+
+            messagebox.showwarning(
+                "Atenção",
+                "O arquivo selecionado não existe mais no local original."
+            )
+            return
+
+        try:
+            comando = f'explorer /select,"{caminho}"'
+            subprocess.Popen(comando)
+            self.escrever_visor(f"Local aberto: {caminho}")
+        except Exception:
+            try:
+                pasta = os.path.dirname(caminho)
+                os.startfile(pasta)
+                self.escrever_visor(f"Pasta aberta: {pasta}")
+            except Exception as erro:
+                messagebox.showerror(
+                    "Erro",
+                    f"Não foi possível abrir o local do arquivo.\n\n{erro}"
+                )
 
     def mover_selecionado(self):
         item_selecionado = self.tabela.selection()
@@ -567,6 +650,7 @@ class ScannerDuplicadosApp:
             destino = self.criar_destino_seguro(caminho)
             shutil.move(caminho, destino)
             self.tabela.delete(item)
+            self.botao_abrir_local.config(state="disabled")
             self.botao_abrir_revisao.config(state="normal")
             self.status_texto.set(f"Arquivo movido para revisão: {destino}")
             self.escrever_visor(f"Arquivo movido: {caminho}")
@@ -624,6 +708,7 @@ class ScannerDuplicadosApp:
 
         self.duplicados = {}
         self.limpar_tabela()
+        self.botao_abrir_local.config(state="disabled")
         self.botao_mover_selecionado.config(state="disabled")
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
@@ -702,6 +787,7 @@ class ScannerDuplicadosApp:
         self.cancelar_evento.clear()
 
         self.botao_cancelar.config(state="disabled")
+        self.botao_abrir_local.config(state="disabled")
         self.botao_mover_selecionado.config(state="disabled")
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
