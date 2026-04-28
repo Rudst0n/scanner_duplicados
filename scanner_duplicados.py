@@ -10,13 +10,17 @@ class ScannerDuplicadosApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Scanner de Arquivos Duplicados")
-        self.root.geometry("1150x760")
-        self.root.minsize(1000, 650)
+        self.root.geometry("1240x780")
+        self.root.minsize(1100, 680)
 
         self.pasta_selecionada = tk.StringVar()
         self.status_texto = tk.StringVar(value="Selecione uma pasta para iniciar.")
+        self.contador_texto = tk.StringVar(value="Arquivos verificados: 0")
+
         self.duplicados = {}
         self.pasta_revisao = ""
+        self.cancelar_evento = threading.Event()
+        self.total_verificados = 0
 
         self.criar_interface()
 
@@ -63,48 +67,68 @@ class ScannerDuplicadosApp:
             frame_botoes,
             text="Iniciar scanner",
             command=self.iniciar_scanner,
-            width=18,
+            width=17,
             bg="#1f6feb",
             fg="white"
         )
-        self.botao_scan.pack(side="left", padx=(0, 10))
+        self.botao_scan.pack(side="left", padx=(0, 8))
+
+        self.botao_cancelar = tk.Button(
+            frame_botoes,
+            text="Cancelar análise",
+            command=self.cancelar_scanner,
+            width=17,
+            bg="#6b7280",
+            fg="white",
+            state="disabled"
+        )
+        self.botao_cancelar.pack(side="left", padx=(0, 8))
 
         self.botao_mover_selecionado = tk.Button(
             frame_botoes,
             text="Mover selecionado",
             command=self.mover_selecionado,
-            width=18,
+            width=17,
             bg="#b42318",
             fg="white",
             state="disabled"
         )
-        self.botao_mover_selecionado.pack(side="left", padx=(0, 10))
+        self.botao_mover_selecionado.pack(side="left", padx=(0, 8))
 
         self.botao_mover_todos = tk.Button(
             frame_botoes,
             text="Mover duplicados",
             command=self.mover_todos_duplicados,
-            width=18,
+            width=17,
             bg="#7a271a",
             fg="white",
             state="disabled"
         )
-        self.botao_mover_todos.pack(side="left", padx=(0, 10))
+        self.botao_mover_todos.pack(side="left", padx=(0, 8))
+
+        self.botao_abrir_revisao = tk.Button(
+            frame_botoes,
+            text="Abrir revisão",
+            command=self.abrir_pasta_revisao,
+            width=15,
+            state="disabled"
+        )
+        self.botao_abrir_revisao.pack(side="left", padx=(0, 8))
 
         self.botao_relatorio = tk.Button(
             frame_botoes,
             text="Salvar relatório",
             command=self.salvar_relatorio,
-            width=18,
+            width=15,
             state="disabled"
         )
-        self.botao_relatorio.pack(side="left", padx=(0, 10))
+        self.botao_relatorio.pack(side="left", padx=(0, 8))
 
         self.botao_limpar = tk.Button(
             frame_botoes,
             text="Limpar",
             command=self.limpar_resultados,
-            width=12
+            width=10
         )
         self.botao_limpar.pack(side="left")
 
@@ -114,12 +138,22 @@ class ScannerDuplicadosApp:
         )
         self.progress_bar.pack(fill="x", pady=(5, 10))
 
+        frame_status = tk.Frame(frame_principal)
+        frame_status.pack(fill="x", pady=(0, 10))
+
         label_status = tk.Label(
-            frame_principal,
+            frame_status,
             textvariable=self.status_texto,
             font=("Segoe UI", 10)
         )
-        label_status.pack(anchor="w", pady=(0, 10))
+        label_status.pack(side="left", anchor="w")
+
+        label_contador = tk.Label(
+            frame_status,
+            textvariable=self.contador_texto,
+            font=("Segoe UI", 10, "bold")
+        )
+        label_contador.pack(side="right", anchor="e")
 
         frame_resultado = tk.Frame(frame_principal)
         frame_resultado.pack(fill="both", expand=True)
@@ -140,10 +174,10 @@ class ScannerDuplicadosApp:
         self.tabela.heading("caminho", text="Caminho")
 
         self.tabela.column("grupo", width=70, anchor="center")
-        self.tabela.column("acao", width=120, anchor="center")
+        self.tabela.column("acao", width=110, anchor="center")
         self.tabela.column("arquivo", width=260)
         self.tabela.column("tamanho", width=110, anchor="center")
-        self.tabela.column("caminho", width=620)
+        self.tabela.column("caminho", width=690)
 
         scroll_y = ttk.Scrollbar(
             frame_resultado,
@@ -209,15 +243,28 @@ class ScannerDuplicadosApp:
         self.visor.delete("1.0", "end")
         self.visor.config(state="disabled")
 
+    def atualizar_contador(self):
+        self.root.after(
+            0,
+            lambda: self.contador_texto.set(f"Arquivos verificados: {self.total_verificados}")
+        )
+
     def escolher_pasta(self):
         pasta = filedialog.askdirectory(title="Selecione a pasta para escanear")
 
-        if pasta:
-            self.pasta_selecionada.set(pasta)
-            self.pasta_revisao = os.path.join(pasta, "_duplicados_para_revisar")
-            self.status_texto.set("Pasta selecionada. Clique em Iniciar scanner.")
-            self.limpar_visor()
-            self.escrever_visor(f"Pasta selecionada: {pasta}")
+        if not pasta:
+            return
+
+        self.pasta_selecionada.set(pasta)
+        self.pasta_revisao = os.path.join(pasta, "_duplicados_para_revisar")
+        self.status_texto.set("Pasta selecionada. Clique em Iniciar scanner.")
+        self.limpar_visor()
+        self.escrever_visor(f"Pasta selecionada: {pasta}")
+
+        if os.path.exists(self.pasta_revisao):
+            self.botao_abrir_revisao.config(state="normal")
+        else:
+            self.botao_abrir_revisao.config(state="disabled")
 
     def iniciar_scanner(self):
         pasta = self.pasta_selecionada.get().strip()
@@ -232,13 +279,23 @@ class ScannerDuplicadosApp:
 
         self.limpar_tabela()
         self.limpar_visor()
+
         self.duplicados = {}
+        self.total_verificados = 0
+        self.atualizar_contador()
+        self.cancelar_evento.clear()
         self.pasta_revisao = os.path.join(pasta, "_duplicados_para_revisar")
 
         self.botao_scan.config(state="disabled")
+        self.botao_cancelar.config(state="normal")
         self.botao_mover_selecionado.config(state="disabled")
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
+
+        if os.path.exists(self.pasta_revisao):
+            self.botao_abrir_revisao.config(state="normal")
+        else:
+            self.botao_abrir_revisao.config(state="disabled")
 
         self.progress_bar.start(10)
         self.status_texto.set("Escaneando arquivos. Aguarde...")
@@ -249,13 +306,27 @@ class ScannerDuplicadosApp:
         thread.daemon = True
         thread.start()
 
+    def cancelar_scanner(self):
+        self.cancelar_evento.set()
+        self.botao_cancelar.config(state="disabled")
+        self.status_texto.set("Cancelando análise. Aguarde finalizar o arquivo atual...")
+        self.escrever_visor("Cancelamento solicitado pelo usuário.")
+
     def executar_scanner(self, pasta):
         try:
             arquivos_por_tamanho = self.agrupar_por_tamanho(pasta)
+
+            if self.cancelar_evento.is_set() or arquivos_por_tamanho is None:
+                self.root.after(0, self.finalizar_cancelamento)
+                return
+
             duplicados_encontrados = self.encontrar_duplicados(arquivos_por_tamanho)
 
-            self.duplicados = duplicados_encontrados
+            if self.cancelar_evento.is_set() or duplicados_encontrados is None:
+                self.root.after(0, self.finalizar_cancelamento)
+                return
 
+            self.duplicados = duplicados_encontrados
             self.root.after(0, self.finalizar_scanner)
 
         except Exception as erro:
@@ -263,16 +334,21 @@ class ScannerDuplicadosApp:
 
     def agrupar_por_tamanho(self, pasta):
         arquivos_por_tamanho = {}
-        total_lidos = 0
 
         self.escrever_visor("Verificando pastas e tamanhos dos arquivos.")
 
         for raiz, pastas, arquivos in os.walk(pasta):
+            if self.cancelar_evento.is_set():
+                return None
+
             pastas[:] = [p for p in pastas if p != "_duplicados_para_revisar"]
 
             self.escrever_visor(f"Entrando na pasta: {raiz}")
 
             for nome_arquivo in arquivos:
+                if self.cancelar_evento.is_set():
+                    return None
+
                 caminho_completo = os.path.join(raiz, nome_arquivo)
 
                 try:
@@ -286,8 +362,9 @@ class ScannerDuplicadosApp:
                         arquivos_por_tamanho[tamanho] = []
 
                     arquivos_por_tamanho[tamanho].append(caminho_completo)
-                    total_lidos += 1
 
+                    self.total_verificados += 1
+                    self.atualizar_contador()
                     self.escrever_visor(f"Lido: {caminho_completo}")
 
                 except PermissionError:
@@ -297,7 +374,7 @@ class ScannerDuplicadosApp:
                 except OSError:
                     self.escrever_visor(f"Não foi possível acessar: {caminho_completo}")
 
-        self.escrever_visor(f"Arquivos verificados: {total_lidos}")
+        self.escrever_visor(f"Arquivos verificados: {self.total_verificados}")
 
         return arquivos_por_tamanho
 
@@ -307,14 +384,23 @@ class ScannerDuplicadosApp:
         self.escrever_visor("Calculando assinatura dos arquivos com mesmo tamanho.")
 
         for tamanho, arquivos in arquivos_por_tamanho.items():
+            if self.cancelar_evento.is_set():
+                return None
+
             if len(arquivos) < 2:
                 continue
 
-            self.escrever_visor(f"Analisando grupo de tamanho igual: {self.formatar_tamanho(tamanho)}")
+            self.escrever_visor(f"Analisando arquivos com tamanho: {self.formatar_tamanho(tamanho)}")
 
             for caminho in arquivos:
+                if self.cancelar_evento.is_set():
+                    return None
+
                 self.escrever_visor(f"Calculando assinatura: {caminho}")
                 hash_arquivo = self.calcular_hash(caminho)
+
+                if self.cancelar_evento.is_set():
+                    return None
 
                 if not hash_arquivo:
                     self.escrever_visor(f"Assinatura não calculada: {caminho}")
@@ -328,6 +414,9 @@ class ScannerDuplicadosApp:
         duplicados = {}
 
         for hash_arquivo, arquivos in hashes.items():
+            if self.cancelar_evento.is_set():
+                return None
+
             if len(arquivos) > 1:
                 duplicados[hash_arquivo] = sorted(arquivos)
                 self.escrever_visor(f"Duplicado encontrado: {len(arquivos)} arquivos iguais.")
@@ -340,6 +429,9 @@ class ScannerDuplicadosApp:
         try:
             with open(caminho, "rb") as arquivo:
                 while True:
+                    if self.cancelar_evento.is_set():
+                        return None
+
                     bloco = arquivo.read(1024 * 1024)
 
                     if not bloco:
@@ -356,15 +448,30 @@ class ScannerDuplicadosApp:
         except OSError:
             return None
 
+    def finalizar_cancelamento(self):
+        self.progress_bar.stop()
+        self.botao_scan.config(state="normal")
+        self.botao_cancelar.config(state="disabled")
+        self.botao_mover_selecionado.config(state="disabled")
+        self.botao_mover_todos.config(state="disabled")
+        self.botao_relatorio.config(state="disabled")
+        self.duplicados = {}
+        self.status_texto.set("Análise cancelada pelo usuário.")
+        self.escrever_visor("Scanner cancelado.")
+
     def finalizar_scanner(self):
         self.progress_bar.stop()
         self.botao_scan.config(state="normal")
+        self.botao_cancelar.config(state="disabled")
 
         self.preencher_tabela()
 
         total_grupos = len(self.duplicados)
         total_arquivos = sum(len(arquivos) for arquivos in self.duplicados.values())
         total_para_mover = total_arquivos - total_grupos
+
+        if os.path.exists(self.pasta_revisao):
+            self.botao_abrir_revisao.config(state="normal")
 
         if total_grupos == 0:
             self.status_texto.set("Nenhum arquivo duplicado encontrado.")
@@ -373,22 +480,26 @@ class ScannerDuplicadosApp:
             self.botao_relatorio.config(state="disabled")
             self.escrever_visor("Scanner finalizado. Nenhum duplicado encontrado.")
             messagebox.showinfo("Resultado", "Nenhum arquivo duplicado foi encontrado.")
-        else:
-            self.status_texto.set(
-                f"Foram encontrados {total_grupos} grupos de duplicados, totalizando {total_arquivos} arquivos. "
-                f"{total_para_mover} podem ser movidos para revisão."
-            )
-            self.botao_mover_selecionado.config(state="normal")
-            self.botao_mover_todos.config(state="normal")
-            self.botao_relatorio.config(state="normal")
-            self.escrever_visor("Scanner finalizado.")
-            self.escrever_visor(f"Grupos de duplicados: {total_grupos}")
-            self.escrever_visor(f"Arquivos duplicados no total: {total_arquivos}")
-            self.escrever_visor(f"Arquivos que podem ser movidos: {total_para_mover}")
+            return
+
+        self.status_texto.set(
+            f"Foram encontrados {total_grupos} grupos de duplicados, totalizando {total_arquivos} arquivos. "
+            f"{total_para_mover} podem ser movidos para revisão."
+        )
+
+        self.botao_mover_selecionado.config(state="normal")
+        self.botao_mover_todos.config(state="normal")
+        self.botao_relatorio.config(state="normal")
+
+        self.escrever_visor("Scanner finalizado.")
+        self.escrever_visor(f"Grupos de duplicados: {total_grupos}")
+        self.escrever_visor(f"Arquivos duplicados no total: {total_arquivos}")
+        self.escrever_visor(f"Arquivos que podem ser movidos: {total_para_mover}")
 
     def erro_scanner(self, mensagem):
         self.progress_bar.stop()
         self.botao_scan.config(state="normal")
+        self.botao_cancelar.config(state="disabled")
         self.botao_mover_selecionado.config(state="disabled")
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
@@ -401,7 +512,7 @@ class ScannerDuplicadosApp:
 
         grupo = 1
 
-        for _, arquivos in self.duplicados.items():
+        for arquivos in self.duplicados.values():
             for indice, caminho in enumerate(arquivos):
                 try:
                     tamanho = self.formatar_tamanho(os.path.getsize(caminho))
@@ -456,6 +567,7 @@ class ScannerDuplicadosApp:
             destino = self.criar_destino_seguro(caminho)
             shutil.move(caminho, destino)
             self.tabela.delete(item)
+            self.botao_abrir_revisao.config(state="normal")
             self.status_texto.set(f"Arquivo movido para revisão: {destino}")
             self.escrever_visor(f"Arquivo movido: {caminho}")
             self.escrever_visor(f"Destino: {destino}")
@@ -494,7 +606,7 @@ class ScannerDuplicadosApp:
 
         self.escrever_visor("Movimentação dos duplicados iniciada.")
 
-        for _, arquivos in self.duplicados.items():
+        for arquivos in self.duplicados.values():
             arquivos_para_mover = arquivos[1:]
 
             for caminho in arquivos_para_mover:
@@ -516,6 +628,9 @@ class ScannerDuplicadosApp:
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
 
+        if os.path.exists(self.pasta_revisao):
+            self.botao_abrir_revisao.config(state="normal")
+
         if erros:
             self.status_texto.set(
                 f"{movidos} arquivos foram movidos para revisão. Alguns arquivos não puderam ser movidos."
@@ -526,14 +641,31 @@ class ScannerDuplicadosApp:
                 f"{movidos} arquivos foram movidos para revisão.\n\n"
                 f"Alguns arquivos não puderam ser movidos."
             )
-        else:
-            self.status_texto.set(
-                f"{movidos} arquivos foram movidos para a pasta de revisão."
-            )
-            self.escrever_visor("Movimentação finalizada com sucesso.")
-            messagebox.showinfo(
-                "Concluído",
-                f"{movidos} arquivos foram movidos para a pasta de revisão."
+            return
+
+        self.status_texto.set(f"{movidos} arquivos foram movidos para a pasta de revisão.")
+        self.escrever_visor("Movimentação finalizada com sucesso.")
+        messagebox.showinfo("Concluído", f"{movidos} arquivos foram movidos para a pasta de revisão.")
+
+    def abrir_pasta_revisao(self):
+        if not self.pasta_revisao:
+            pasta = self.pasta_selecionada.get().strip()
+
+            if not pasta:
+                messagebox.showwarning("Atenção", "Selecione uma pasta primeiro.")
+                return
+
+            self.pasta_revisao = os.path.join(pasta, "_duplicados_para_revisar")
+
+        try:
+            os.makedirs(self.pasta_revisao, exist_ok=True)
+            os.startfile(self.pasta_revisao)
+            self.botao_abrir_revisao.config(state="normal")
+            self.escrever_visor(f"Pasta de revisão aberta: {self.pasta_revisao}")
+        except Exception as erro:
+            messagebox.showerror(
+                "Erro",
+                f"Não foi possível abrir a pasta de revisão.\n\n{erro}"
             )
 
     def criar_destino_seguro(self, caminho_origem):
@@ -565,9 +697,20 @@ class ScannerDuplicadosApp:
         self.limpar_tabela()
         self.limpar_visor()
         self.duplicados = {}
+        self.total_verificados = 0
+        self.atualizar_contador()
+        self.cancelar_evento.clear()
+
+        self.botao_cancelar.config(state="disabled")
         self.botao_mover_selecionado.config(state="disabled")
         self.botao_mover_todos.config(state="disabled")
         self.botao_relatorio.config(state="disabled")
+
+        if self.pasta_revisao and os.path.exists(self.pasta_revisao):
+            self.botao_abrir_revisao.config(state="normal")
+        else:
+            self.botao_abrir_revisao.config(state="disabled")
+
         self.status_texto.set("Resultados limpos. Selecione uma pasta para iniciar.")
 
     def salvar_relatorio(self):
@@ -593,7 +736,7 @@ class ScannerDuplicadosApp:
 
                 grupo = 1
 
-                for _, arquivos in self.duplicados.items():
+                for arquivos in self.duplicados.values():
                     relatorio.write(f"Grupo {grupo}\n")
                     relatorio.write("-" * 30 + "\n")
 
